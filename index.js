@@ -48,21 +48,21 @@ app.post("/add-book", async (req, res) => {
 });
 // Show a All book
 
-// app.get("/all-books", async (req, res) => {
-//   try {
-//     const books = await booksCollection.find().toArray();
+app.get("/all-books", async (req, res) => {
+  try {
+    const books = await booksCollection.find().toArray();
 
-//     res.send({
-//       success: true,
-//       books,
-//     });
-//   } catch (error) {
-//     res.status(500).send({
-//       success: false,
-//       message: error.message,
-//     });
-//   }
-// });
+    res.send({
+      success: true,
+      books,
+    });
+  } catch (error) {
+    res.status(500).send({
+      success: false,
+      message: error.message,
+    });
+  }
+});
 
 // Get book details by ID
 // app.get("/all-books/:id", async (req, res) => {
