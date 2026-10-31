@@ -24,6 +24,7 @@ const mongoClient = await connectToMongoDB();
 
 const db = mongoClient.db("Paper-Haven");
 const booksCollection = db.collection("AddBooks");
+const borrowsCollection = db.collection("borrows");
 
 // Add a new book
 app.post("/add-book", async (req, res) => {
@@ -86,6 +87,61 @@ app.get("/all-books/:id", async (req, res) => {
     });
   }
 });
+// -----------------------
+app.get("/my-books/:ownerId", async (req, res) => {
+  try {
+    const books = await booksCollection
+      .find({ ownerId: req.params.ownerId })
+      .toArray();
+
+    res.send(books);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch books" });
+  }
+});
+// ---------------------------
+app.put("/my-books/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ownerId, ...updatedData } = req.body;
+
+    const result = await booksCollection.updateOne(
+      { _id: new ObjectId(id), ownerId },
+      { $set: updatedData }
+    );
+
+    if (!result.matchedCount) {
+      return res.status(404).send({ message: "Book not found" });
+    }
+
+    res.send({ success: true, message: "Book updated successfully" });
+  } catch (error) {
+    res.status(500).send({ message: error.message });
+  }
+});
+// -----------------------------
+app.delete("/my-books/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ownerId } = req.body;
+
+    const result = await booksCollection.deleteOne({
+      _id: new ObjectId(id),
+      ownerId,
+    });
+
+    if (!result.deletedCount) {
+      return res.status(404).send({ message: "Book not found" });
+    }
+
+    res.send({ success: true, message: "Book deleted successfully" });
+  } catch (error) {
+    res.status(500).send({ message: error.message });
+  }
+});
+
+
+
 
 // http://localhost:8000/add-book
 // http://localhost:8000/all-books
