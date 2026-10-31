@@ -26,26 +26,26 @@ const db = mongoClient.db("Paper-Haven");
 const booksCollection = db.collection("AddBooks");
 
 // Add a new book
-// app.post("/add-book", async (req, res) => {
-//   try {
-//     const book = {
-//       ...req.body,
-//       createdAt: new Date(),
-//     };
+app.post("/add-book", async (req, res) => {
+  try {
+    const book = {
+      ...req.body,
+      createdAt: new Date(),
+    };
 
-//     const result = await booksCollection.insertOne(book);
+    const result = await booksCollection.insertOne(book);
 
-//     res.send({
-//       success: true,
-//       insertedId: result.insertedId,
-//     });
-//   } catch (error) {
-//     res.status(500).send({
-//       success: false,
-//       message: error.message,
-//     });
-//   }
-// });
+    res.send({
+      success: true,
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    res.status(500).send({
+      success: false,
+      message: error.message,
+    });
+  }
+});
 // Show a All book
 
 // app.get("/all-books", async (req, res) => {
