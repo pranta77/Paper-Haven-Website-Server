@@ -65,27 +65,27 @@ app.get("/all-books", async (req, res) => {
 });
 
 // Get book details by ID
-// app.get("/all-books/:id", async (req, res) => {
-//   try {
-//     const { id } = req.params;
+app.get("/all-books/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
 
-//     const result = await booksCollection.findOne({
-//       _id: new ObjectId(id),
-//     });
+    const result = await booksCollection.findOne({
+      _id: new ObjectId(id),
+    });
 
-//     if (!result) {
-//       return res.status(404).send({
-//         message: "Book not found",
-//       });
-//     }
+    if (!result) {
+      return res.status(404).send({
+        message: "Book not found",
+      });
+    }
 
-//     res.send(result);
-//   } catch (error) {
-//     res.status(400).send({
-//       message: "Invalid book ID",
-//     });
-//   }
-// });
+    res.send(result);
+  } catch (error) {
+    res.status(400).send({
+      message: "Invalid book ID",
+    });
+  }
+});
 
 // http://localhost:8000/add-book
 // http://localhost:8000/all-books
