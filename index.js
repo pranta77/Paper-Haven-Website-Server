@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import "dotenv/config";
 import { MongoClient, ObjectId } from "mongodb";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const app = express();
 const PORT = 8000;
@@ -21,13 +22,33 @@ export async function connectToMongoDB() {
   }
 }
 const mongoClient = await connectToMongoDB();
-
 const db = mongoClient.db("Paper-Haven");
 const booksCollection = db.collection("AddBooks");
 const borrowsCollection = db.collection("borrows");
 
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ msg: "Unauthorized!" });
+  }
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).send({ msg: "Unauthorized!" });
+  }
+
+  const JWKS = createRemoteJWKSet(
+    new URL("http://localhost:3000/api/auth/jwks"),
+  );
+  try {
+    const { payload } = await jwtVerify(token, JWKS);
+    next();
+  } catch (error) {
+    return res.status(500).send({ msg: "Server Error!" });
+  }
+};
+
 // Add a new book
-app.post("/add-book", async (req, res) => {
+app.post("/add-book", verifyToken, async (req, res) => {
   try {
     const book = {
       ...req.body,
@@ -66,7 +87,7 @@ app.get("/all-books", async (req, res) => {
 });
 
 // Get book details by ID
-app.get("/all-books/:id", async (req, res) => {
+app.get("/all-books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -100,14 +121,14 @@ app.get("/my-books/:ownerId", async (req, res) => {
   }
 });
 // ---------------------------
-app.put("/my-books/:id", async (req, res) => {
+app.put("/my-books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { ownerId, ...updatedData } = req.body;
 
     const result = await booksCollection.updateOne(
       { _id: new ObjectId(id), ownerId },
-      { $set: updatedData }
+      { $set: updatedData },
     );
 
     if (!result.matchedCount) {
@@ -208,7 +229,6 @@ app.delete("/my-borrows/:id", async (req, res) => {
     res.status(500).send({ message: error.message });
   }
 });
-
 
 // http://localhost:8000/add-book
 // http://localhost:8000/all-books
