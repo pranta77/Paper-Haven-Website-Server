@@ -37,7 +37,7 @@ const verifyToken = async (req, res, next) => {
   }
 
   const JWKS = createRemoteJWKSet(
-    new URL("http://localhost:3000/api/auth/jwks"),
+    new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
   );
   try {
     const { payload } = await jwtVerify(token, JWKS);
@@ -68,8 +68,21 @@ app.post("/add-book", verifyToken, async (req, res) => {
     });
   }
 });
-// Show a All book
+// Add a latest books API
+app.get("/latest-books", async (req, res) => {
+  try {
+    const books = await booksCollection
+      .find()
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .toArray();
 
+    res.send(books);
+  } catch (error) {
+    res.status(500).send({ message: error.message });
+  }
+});
+// Show a All book
 app.get("/all-books", async (req, res) => {
   try {
     const books = await booksCollection.find().toArray();
