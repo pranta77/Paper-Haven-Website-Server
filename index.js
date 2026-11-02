@@ -19,26 +19,38 @@ export async function connectToMongoDB() {
     return client;
   } catch (err) {
     console.dir(err);
+    throw err;
   }
 }
+
 const mongoClient = await connectToMongoDB();
 const db = mongoClient.db("Paper-Haven");
 const booksCollection = db.collection("AddBooks");
 const borrowsCollection = db.collection("borrows");
 
+// Give existing books 1 copy if they don't have totalCopies yet
+await booksCollection.updateMany(
+  { totalCopies: { $exists: false } },
+  { $set: { totalCopies: 1 } }
+);
+
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
+
   if (!authHeader) {
     return res.status(401).send({ msg: "Unauthorized!" });
   }
+
   const token = authHeader.split(" ")[1];
+
   if (!token) {
     return res.status(401).send({ msg: "Unauthorized!" });
   }
 
   const JWKS = createRemoteJWKSet(
-    new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
+    new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
   );
+
   try {
     const { payload } = await jwtVerify(token, JWKS);
     next();
@@ -50,8 +62,18 @@ const verifyToken = async (req, res, next) => {
 // Add a new book
 app.post("/add-book", verifyToken, async (req, res) => {
   try {
+    const totalCopies = Number(req.body.totalCopies);
+
+    if (!Number.isInteger(totalCopies) || totalCopies < 1) {
+      return res.status(400).send({
+        success: false,
+        message: "Total copies must be at least 1",
+      });
+    }
+
     const book = {
       ...req.body,
+      totalCopies,
       createdAt: new Date(),
     };
 
@@ -68,7 +90,8 @@ app.post("/add-book", verifyToken, async (req, res) => {
     });
   }
 });
-// Add a latest books API
+
+// Get latest books
 app.get("/latest-books", async (req, res) => {
   try {
     const books = await booksCollection
@@ -76,17 +99,16 @@ app.get("/latest-books", async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(6)
       .toArray();
-
     res.send(books);
   } catch (error) {
     res.status(500).send({ message: error.message });
   }
 });
-// Show a All book
+
+// Get all books
 app.get("/all-books", async (req, res) => {
   try {
     const books = await booksCollection.find().toArray();
-
     res.send({
       success: true,
       books,
@@ -104,6 +126,10 @@ app.get("/all-books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid book ID" });
+    }
+
     const result = await booksCollection.findOne({
       _id: new ObjectId(id),
     });
@@ -116,12 +142,13 @@ app.get("/all-books/:id", verifyToken, async (req, res) => {
 
     res.send(result);
   } catch (error) {
-    res.status(400).send({
-      message: "Invalid book ID",
+    res.status(500).send({
+      message: error.message,
     });
   }
 });
-// -----------------------
+
+// Get books added by a user
 app.get("/my-books/:ownerId", async (req, res) => {
   try {
     const books = await booksCollection
@@ -133,7 +160,8 @@ app.get("/my-books/:ownerId", async (req, res) => {
     res.status(500).send({ message: "Failed to fetch books" });
   }
 });
-// ---------------------------
+
+// Update a book
 app.put("/my-books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -141,7 +169,7 @@ app.put("/my-books/:id", verifyToken, async (req, res) => {
 
     const result = await booksCollection.updateOne(
       { _id: new ObjectId(id), ownerId },
-      { $set: updatedData },
+      { $set: updatedData }
     );
 
     if (!result.matchedCount) {
@@ -153,7 +181,8 @@ app.put("/my-books/:id", verifyToken, async (req, res) => {
     res.status(500).send({ message: error.message });
   }
 });
-// -----------------------------
+
+// Delete a book
 app.delete("/my-books/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -174,19 +203,56 @@ app.delete("/my-books/:id", async (req, res) => {
   }
 });
 
-// POST — Borrow a book
+// Borrow a book
 app.post("/borrow-book", async (req, res) => {
   try {
     const { bookId, userEmail } = req.body;
 
+    if (!bookId || !ObjectId.isValid(bookId) || !userEmail) {
+      return res.status(400).send({
+        success: false,
+        message: "Book ID and user email are required",
+      });
+    }
+
+    // 1. Check if the user already borrowed this book
+    const alreadyBorrowed = await borrowsCollection.findOne({
+      bookId,
+      userEmail,
+    });
+
+    if (alreadyBorrowed) {
+      return res.status(400).send({
+        success: false,
+        message: "You have already borrowed this book!",
+      });
+    }
+
+    // 2. Decrease available copies by 1
+    // Only update if at least one copy is available
+    const stockResult = await booksCollection.updateOne(
+      {
+        _id: new ObjectId(bookId),
+        totalCopies: { $gt: 0 },
+      },
+      {
+        $inc: { totalCopies: -1 },
+      }
+    );
+
+    if (!stockResult.modifiedCount) {
+      return res.status(400).send({
+        success: false,
+        message: "This book is not available!",
+      });
+    }
+
+    // 3. Get book information
     const book = await booksCollection.findOne({
       _id: new ObjectId(bookId),
     });
 
-    if (!book) {
-      return res.status(404).send({ message: "Book not found" });
-    }
-
+    // 4. Set borrow and return dates
     const borrowDate = new Date();
     const returnDate = new Date();
     returnDate.setDate(returnDate.getDate() + 14);
@@ -200,17 +266,33 @@ app.post("/borrow-book", async (req, res) => {
       returnDate,
     };
 
-    const result = await borrowsCollection.insertOne(borrow);
+    // 5. Save borrow record
+    try {
+      const result = await borrowsCollection.insertOne(borrow);
 
-    res.send({
-      success: true,
-      insertedId: result.insertedId,
-    });
+      res.send({
+        success: true,
+        message: "Book borrowed successfully",
+        insertedId: result.insertedId,
+      });
+    } catch (error) {
+      // Restore stock if saving the borrow record fails
+      await booksCollection.updateOne(
+        { _id: new ObjectId(bookId) },
+        { $inc: { totalCopies: 1 } }
+      );
+
+      throw error;
+    }
   } catch (error) {
-    res.status(500).send({ message: error.message });
+    res.status(500).send({
+      success: false,
+      message: error.message,
+    });
   }
 });
-// GET — Get a user's borrowed books
+
+// Get a user's borrowed books
 app.get("/my-borrows/:email", async (req, res) => {
   try {
     const borrows = await borrowsCollection
@@ -222,35 +304,65 @@ app.get("/my-borrows/:email", async (req, res) => {
     res.status(500).send({ message: error.message });
   }
 });
-// DELETE — Return a book
+
+// Return a book
 app.delete("/my-borrows/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { userEmail } = req.body;
 
+    if (!ObjectId.isValid(id) || !userEmail) {
+      return res.status(400).send({
+        message: "Invalid borrow ID or user email",
+      });
+    }
+
+    // 1. Find the borrow record belonging to this user
+    const borrow = await borrowsCollection.findOne({
+      _id: new ObjectId(id),
+      userEmail,
+    });
+
+    if (!borrow) {
+      return res.status(404).send({
+        message: "Borrow record not found or already returned",
+      });
+    }
+
+    // 2. Delete the borrow record
     const result = await borrowsCollection.deleteOne({
       _id: new ObjectId(id),
       userEmail,
     });
 
     if (!result.deletedCount) {
-      return res.status(404).send({ message: "Borrow record not found" });
+      return res.status(404).send({
+        message: "Book already returned",
+      });
     }
 
-    res.send({ success: true, message: "Book returned successfully" });
+    // 3. Increase available copies by 1
+    await booksCollection.updateOne(
+      { _id: new ObjectId(borrow.bookId) },
+      { $inc: { totalCopies: 1 } }
+    );
+
+    res.send({
+      success: true,
+      message: "Book returned successfully",
+    });
   } catch (error) {
     res.status(500).send({ message: error.message });
   }
 });
 
-// http://localhost:8000/add-book
-// http://localhost:8000/all-books
+// Root route
 app.get("/", (req, res) => {
   res.send("Hello Paper Haven Server");
 });
 
 app.listen(PORT, () => {
-  console.log(`Paper Haven app listening on  ${PORT}`);
+  console.log(`Paper Haven app listening on ${PORT}`);
 });
 
 export default app;
